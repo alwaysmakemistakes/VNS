@@ -1,18 +1,57 @@
 version: '3.8'
+
 services:
-  web:
+  web1:
     build: .
     ports:
-      - "5000:5000"
-    depends_on:
-      - db
+      - "5001:5001"
     environment:
+      - PORT=5001
       - DATABASE_URL=postgresql://user:password@db:5432/mydb
+    depends_on:
+      db:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+    restart: unless-stopped
+
+  web2:
+    build: .
+    ports:
+      - "5002:5002"
+    environment:
+      - PORT=5002
+      - DATABASE_URL=postgresql://user:password@db:5432/mydb
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  web3:
+    build: .
+    ports:
+      - "5003:5003"
+    environment:
+      - PORT=5003
+      - DATABASE_URL=postgresql://user:password@db:5432/mydb
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
   db:
     image: postgres:17
     environment:
@@ -21,5 +60,11 @@ services:
       - POSTGRES_DB=mydb
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d mydb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
 volumes:
   postgres_data:
