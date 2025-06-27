@@ -1,0 +1,6 @@
+Flask
+flask_jwt_extended
+flask_cors
+psycopg2-binary
+prometheus_flask_exporter
+requests
