@@ -1,4 +1,5 @@
-```mermaid
+```
+mermaid
 graph TD
     subgraph Users_Service
         users1[users1 (Flask)]
