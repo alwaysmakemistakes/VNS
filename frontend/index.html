@@ -5,11 +5,122 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>My E-Commerce</title>
   <style>
-    body { font-family: Arial, sans-serif; padding: 20px; }
-    .auth, .products, .cart { margin-bottom: 2em; }
-    .product { border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; }
-    input, button { padding: 5px; margin: 5px; }
-    #logout-btn { margin-top: 10px; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f5f5f5;
+      color: #333;
+    }
+
+    h1 {
+      color: #007bff;
+      text-align: center;
+      margin-bottom: 30px;
+    }
+
+    h2 {
+      border-bottom: 2px solid #007bff;
+      padding-bottom: 5px;
+      margin-top: 30px;
+      margin-bottom: 15px;
+    }
+
+    .auth, .products, .cart, .wallet {
+      background: #fff;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 30px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+
+    .product {
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 20px;
+      background: #fafafa;
+      transition: box-shadow 0.3s;
+    }
+
+    .product:hover {
+      box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+    }
+
+    input, button {
+      padding: 10px;
+      margin: 5px 0;
+      font-size: 14px;
+    }
+
+    input[type="text"] {
+      width: 300px;
+    }
+
+    input {
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+
+    button {
+      background-color: #007bff;
+      border: none;
+      color: white;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+
+    button:hover {
+      background-color: #0056b3;
+    }
+
+    #logout-btn {
+      margin-top: 10px;
+    }
+
+    .out-of-stock {
+      color: red;
+      font-weight: bold;
+    }
+
+    .price-original {
+      text-decoration: line-through;
+      color: #999;
+      margin-right: 10px;
+    }
+
+    .pagination {
+      display: flex;
+      justify-content: center;
+      margin-top: 20px;
+      flex-wrap: wrap;
+    }
+
+    .pagination button {
+      margin: 5px;
+      padding: 8px 15px;
+      border-radius: 4px;
+      border: 1px solid #007bff;
+      background: white;
+      color: #007bff;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .pagination button.active {
+      background: #007bff;
+      color: white;
+    }
+
+    .pagination button:hover {
+      background: #007bff;
+      color: white;
+    }
+
+    .wallet input {
+      width: 150px;
+    }
   </style>
 </head>
 <body>
@@ -19,15 +130,28 @@
     <h2>Login / Register</h2>
     <input type="text" id="username" placeholder="Username" />
     <input type="password" id="password" placeholder="Password" />
+    <br/>
     <button onclick="register()">Register</button>
     <button onclick="login()">Login</button>
     <button id="logout-btn" onclick="logout()" style="display:none;">Logout</button>
     <p id="auth-status"></p>
   </div>
 
+  <div class="wallet" style="display:none;">
+    <h2>Wallet Balance</h2>
+    <p id="wallet-balance">$0</p>
+    <input type="number" id="topup-amount" placeholder="Amount to top up" min="1" />
+    <button onclick="handleTopUp()">Top up</button>
+    <button onclick="loadWallet()">Refresh Balance</button>
+  </div>
+
   <div class="products">
     <h2>Products</h2>
+    <input type="text" id="search-query" placeholder="Search products..." />
+    <button onclick="performSearch()">Search</button>
+    <button onclick="clearSearch()">Clear</button>
     <div id="products"></div>
+    <div class="pagination" id="pagination"></div>
   </div>
 
   <div class="cart">
@@ -43,6 +167,10 @@
 
     let token = localStorage.getItem('token');
     let cart = [];
+
+    let urlParams = new URLSearchParams(window.location.search);
+    let currentPage = parseInt(urlParams.get('page')) || 1;
+    let currentQuery = urlParams.get('query') || '';
 
     function setAuthStatus(msg, success = false) {
       const status = document.getElementById('auth-status');
@@ -75,7 +203,11 @@
           token = data.token;
           localStorage.setItem('token', token);
           document.getElementById('logout-btn').style.display = 'inline-block';
+          document.querySelector('.wallet').style.display = 'block';
           setAuthStatus("Logged in!", true);
+          document.getElementById('username').value = "";
+          document.getElementById('password').value = "";
+          loadWallet();
         } else {
           setAuthStatus(data.error);
         }
@@ -87,25 +219,144 @@
       token = null;
       setAuthStatus("Logged out", true);
       document.getElementById('logout-btn').style.display = 'none';
+      document.querySelector('.wallet').style.display = 'none';
+      document.getElementById('wallet-balance').textContent = "$0";
     }
 
-    function loadProducts() {
-      fetch(`${API_PRODUCTS}`)
+    function loadProducts(page = 1) {
+      let url;
+      if (currentQuery) {
+        url = `${API_PRODUCTS}/search?query=${encodeURIComponent(currentQuery)}&page=${page}`;
+      } else {
+        url = `${API_PRODUCTS}/?page=${page}`;
+      }
+
+      fetch(url)
         .then(res => res.json())
         .then(data => {
           const container = document.getElementById('products');
           container.innerHTML = '';
-          data.forEach(product => {
+
+          data.products.forEach(product => {
             const div = document.createElement('div');
             div.className = 'product';
+
+            const isOutOfStock = product.stock_quantity === 0;
+
+            let priceHTML = '';
+            if (product.original_price && product.price < product.original_price) {
+              priceHTML = `<span class="price-original">$${product.original_price.toFixed(2)}</span>
+                           <span>$${product.price.toFixed(2)}</span>`;
+            } else {
+              priceHTML = `<span>$${product.price.toFixed(2)}</span>`;
+            }
+
             div.innerHTML = `
               <h3>${product.name}</h3>
-              <p>Price: $${product.price}</p>
-              <button onclick="addToCart(${product.id}, '${product.name}', ${product.price})">Add to cart</button>
+              <p>Category: <strong>${product.category || 'N/A'}</strong></p>
+              <p>Price: ${priceHTML}</p>
+              <p>Available: ${product.stock_quantity}</p>
+              <p>Sold: ${product.sold_quantity}</p>
+              ${isOutOfStock ? 
+                `<p class="out-of-stock">Out of stock</p>` :
+                `<button onclick="addToCart(${product.id}, '${product.name}', ${product.price})">Add to cart</button>`
+              }
             `;
             container.appendChild(div);
           });
+
+          renderPagination(data.pagination);
         });
+    }
+
+    function renderPagination(pagination) {
+      const container = document.getElementById('pagination');
+      container.innerHTML = '';
+
+      if (!pagination || !pagination.pages) return;
+
+      pagination.pages.forEach(page => {
+        const btn = document.createElement('button');
+        btn.textContent = page;
+        btn.classList.toggle('active', page === pagination.page);
+        btn.onclick = () => {
+          currentPage = page;
+          updateUrl();
+          loadProducts(currentPage);
+        };
+        container.appendChild(btn);
+      });
+    }
+
+    function performSearch() {
+      const query = document.getElementById('search-query').value.trim();
+      currentQuery = query;
+      currentPage = 1;
+      updateUrl();
+      loadProducts(currentPage);
+    }
+
+    function clearSearch() {
+      document.getElementById('search-query').value = '';
+      currentQuery = '';
+      currentPage = 1;
+      updateUrl();
+      loadProducts(currentPage);
+    }
+
+    function updateUrl() {
+      let params = new URLSearchParams();
+      if (currentPage > 1) params.set('page', currentPage);
+      if (currentQuery) params.set('query', currentQuery);
+      const queryStr = params.toString();
+      const newUrl = queryStr ? `?${queryStr}` : '/';
+      history.pushState({}, '', newUrl);
+    }
+
+    function loadWallet() {
+      if (!token) return;
+      fetch(`${API_USERS}/me`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      .then(res => {
+        if (!res.ok) return;
+        return res.json();
+      })
+      .then(data => {
+        if (data && data.wallet_balance !== undefined) {
+          document.getElementById('wallet-balance').textContent = `$${data.wallet_balance.toFixed(2)}`;
+        }
+      });
+    }
+
+    function handleTopUp() {
+      const amount = parseFloat(document.getElementById('topup-amount').value);
+      if (isNaN(amount) || amount <= 0) {
+        alert("Please enter a valid positive amount.");
+        return;
+      }
+      topUpWallet(amount);
+    }
+
+    function topUpWallet(amount) {
+      fetch("/users/wallet/topup", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ amount })
+      })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.wallet_balance !== undefined) {
+          alert(`New balance: $${data.wallet_balance}`);
+          document.getElementById('topup-amount').value = "";
+          loadWallet();
+        } else {
+          alert(data.error);
+        }
+      });
     }
 
     function addToCart(id, name, price) {
@@ -125,6 +376,8 @@
 
     function checkout() {
       if (!token) return alert("Please login first.");
+      if (cart.length === 0) return alert("Cart is empty!");
+
       fetch(`${API_ORDERS}/checkout`, {
         method: 'POST',
         headers: {
@@ -133,17 +386,40 @@
         },
         body: JSON.stringify({ items: cart })
       })
-      .then(res => res.ok ? alert("Order placed!") : alert("Error placing order"))
-      .then(() => { cart = []; updateCart(); });
+      .then(res => res.json()
+        .then(data => ({ status: res.status, data }))
+      )
+      .then(({ status, data }) => {
+        if (status === 201) {
+          alert("Order placed!");
+          cart = [];
+          updateCart();
+          loadWallet();
+          loadProducts(currentPage);
+        } else {
+          alert("Error placing order: " + (data.error || JSON.stringify(data)));
+        }
+      })
+      .catch(err => alert("Error: " + err));
     }
 
-    // Init
     if (token) {
       document.getElementById('logout-btn').style.display = 'inline-block';
+      document.querySelector('.wallet').style.display = 'block';
       setAuthStatus("Logged in", true);
+      loadWallet();
     }
 
-    loadProducts();
+    window.addEventListener('popstate', () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      currentPage = parseInt(urlParams.get('page')) || 1;
+      currentQuery = urlParams.get('query') || '';
+      document.getElementById('search-query').value = currentQuery;
+      loadProducts(currentPage);
+    });
+
+    document.getElementById('search-query').value = currentQuery;
+    loadProducts(currentPage);
   </script>
 </body>
 </html>

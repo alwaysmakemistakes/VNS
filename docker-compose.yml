@@ -10,7 +10,7 @@ services:
       - "53:53/udp"
     networks:
       pg-network:
-        ipv4_address: 172.30.0.10
+        ipv4_address: 172.30.0.11
     cap_add:
       - NET_ADMIN
 
@@ -49,6 +49,8 @@ services:
   postgres-master:
     image: citusdata/pg_auto_failover:demo
     container_name: postgres-master
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
     environment:
       PGDATA: /tmp/pgaf
       PGUSER: admin
@@ -102,26 +104,75 @@ services:
     networks:
       - pg-network
 
-  rabbitmq:
+  rabbitmq1:
     image: rabbitmq:3-management
-    container_name: rabbitmq
+    hostname: rabbitmq1
+    container_name: rabbitmq1
+    environment:
+      RABBITMQ_ERLANG_COOKIE: supersecretcookie
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
     ports:
       - "5672:5672"
       - "15672:15672"
-      - "15692:15692"
-    environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     networks:
       - pg-network
+
+  rabbitmq2:
+    image: rabbitmq:3-management
+    hostname: rabbitmq2
+    container_name: rabbitmq2
+    environment:
+      RABBITMQ_ERLANG_COOKIE: supersecretcookie
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    depends_on:
+      - rabbitmq1
+    command: >
+      sh -c "
+        rabbitmq-server -detached &&
+        sleep 10 &&
+        rabbitmqctl stop_app &&
+        rabbitmqctl join_cluster rabbit@rabbitmq1 &&
+        rabbitmqctl start_app &&
+        tail -f /dev/null"
+    networks:
+      - pg-network
+
+  rabbitmq3:
+    image: rabbitmq:3-management
+    hostname: rabbitmq3
+    container_name: rabbitmq3
+    environment:
+      RABBITMQ_ERLANG_COOKIE: supersecretcookie
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    depends_on:
+      - rabbitmq1
+    command: >
+      sh -c "
+        rabbitmq-server -detached &&
+        sleep 10 &&
+        rabbitmqctl stop_app &&
+        rabbitmqctl join_cluster rabbit@rabbitmq1 &&
+        rabbitmqctl start_app &&
+        tail -f /dev/null"
+    networks:
+      - pg-network
+
 
   order-worker:
     build: ./backend/orders
     container_name: order-worker
     command: python worker.py
     depends_on:
-      - rabbitmq
-      - postgres-master
+      rabbitmq1:
+        condition: service_healthy
     environment:
       DB_HOST: postgres-master
       DB_NAME: app_db
@@ -235,13 +286,6 @@ services:
     networks:
       - pg-network
 
-  frontend2:
-    build: ./frontend
-    ports:
-      - "8082:80"
-    networks:
-      - pg-network
-
   prometheus:
     image: prom/prometheus:latest
     container_name: prometheus
@@ -303,10 +347,14 @@ services:
       DB_NAME: app_db
       DB_USER: admin
       DB_PASSWORD: ""
+    depends_on:
+      postgres-master:
+        condition: service_healthy
     ports:
       - "5007:5000"
     networks:
       - pg-network
+
 
   nginx:
     image: nginx:latest
@@ -317,7 +365,6 @@ services:
       - ./nginx/cache:/var/cache/nginx
     depends_on:
       - frontend1
-      - frontend2
       - users1
       - users2
       - orders1
@@ -331,6 +378,38 @@ services:
     extra_hosts:
       - "orders.local:172.30.0.20"
       - "orders.local:172.30.0.21"
+
+
+  bot-runner1:
+    build: ./bot-runner
+    environment:
+      - BASE_URL=http://nginx
+      - BOT_SUFFIX=1
+    depends_on:
+      - nginx
+    networks:
+      - pg-network
+
+  bot-runner2:
+    build: ./bot-runner
+    environment:
+      - BASE_URL=http://nginx 
+      - BOT_SUFFIX=2
+    depends_on:
+      - nginx
+    networks:
+      - pg-network
+
+  bot-runner3:
+    build: ./bot-runner
+    environment:
+      - BASE_URL=http://nginx
+      - BOT_SUFFIX=3
+    depends_on:
+      - nginx
+    networks:
+      - pg-network
+
 
 networks:
   pg-network:

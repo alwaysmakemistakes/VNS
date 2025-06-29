@@ -16,9 +16,11 @@ def create_users_table():
         CREATE TABLE IF NOT EXISTS users (
             id SERIAL PRIMARY KEY,
             username TEXT UNIQUE NOT NULL,
-            password TEXT NOT NULL
+            password TEXT NOT NULL,
+            wallet_balance NUMERIC(12,2) DEFAULT 0
         )
     """)
     conn.commit()
     cur.close()
     conn.close()
+

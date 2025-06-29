@@ -1,13 +1,16 @@
 from flask import Flask, request, jsonify
 from prometheus_flask_exporter import PrometheusMetrics
-from models import get_db_connection
+from models import get_db_connection, create_audit_table
 from datetime import datetime
 import requests
+import json
 
 
 app = Flask(__name__)
 metrics = PrometheusMetrics(app)
 AUDIT_SERVICE_URL = "http://audit_service:5000/audit/event"
+
+create_audit_table()
 
 @app.route("/audit/event", methods=["POST"])
 def create_event():
